@@ -44,7 +44,11 @@ ACCOUNT_MAP = dict(config.items('accounts'))
 
 # Load transfer account settings
 REINVEST_TRANSFER_ACCOUNT = config.get('transfer_accounts', 'reinvest')
-CASH_SUFFIX = config.get('transfer_accounts', 'cash_suffix')
+CASH_SUFFIX =  config.get('transfer_accounts', 'cash_suffix')
+
+
+
+RESP_GRANT = config.get('governement_grants', 'RESP')
 
 # Example combined date tokens in some PDFs: Jan102025, Jun302025
 DATE_TOKEN_RE = re.compile(r"^[A-Za-z]{3}\d{1,2}\d{4}$")
@@ -172,7 +176,6 @@ def parse_activity_line(
     fund_code: str,
     fund_name: str,
     source_file: str,
-    pending_return: dict | None,
     account_number: str | None,
 ):
     """
@@ -192,9 +195,10 @@ def parse_activity_line(
             if len(nums) >= 5:
                 amount, unit_price, units_txn, units_post, total_val = nums[-5:]
             else:
-                return None, pending_return
+                return None
 
-            transfer_account = REINVEST_TRANSFER_ACCOUNT if action == "Reinvest" else ACCOUNT_MAP[account_number] + CASH_SUFFIX
+            transfer_account = REINVEST_TRANSFER_ACCOUNT if action == "Reinvest" else ACCOUNT_MAP[account_number] + ":" + CASH_SUFFIX
+
             record = {
                 "Date": date_disp,
                 "Description": description + " src = " + source_file,
@@ -209,8 +213,9 @@ def parse_activity_line(
                 "Fund code": fund_code,
                 "Fund name": fund_name,
             }
-            return record, pending_return
-    return None, pending_return
+
+            return record
+    return None
 
 
 def parse_savings_line(
@@ -244,7 +249,7 @@ def parse_savings_line(
             else:
                 return None
 
-            transfer_account = REINVEST_TRANSFER_ACCOUNT if action == "Reinvest" else ACCOUNT_MAP[account_number] + CASH_SUFFIX
+            transfer_account = REINVEST_TRANSFER_ACCOUNT if action == "Reinvest" else ACCOUNT_MAP[account_number] + ":" + CASH_SUFFIX
             record = {
                 "Date": date_disp,
                 "Description": description + " src = " + source_file,
@@ -357,16 +362,31 @@ def extract_from_pdf_text(path: Path) -> list[dict]:
 
                 # Parse activity rows
                 if section_type == "mutual":
-                    rec, pending_return = parse_activity_line(
+                    rec= parse_activity_line(
                         line=line,
                         fund_code=current_fund_code,
                         fund_name=current_fund_name,
                         source_file=path.name,
-                        pending_return=pending_return,
                         account_number=account_number,
                     )
                     if rec is not None:
                         records.append(rec)
+                        if rec["Description"].startswith(("Grant", "PGQC")) :
+                            rec_income = {
+                                "Date": rec["Date"],
+                                "Description": rec["Description"],
+                                "Action": rec["Action"],
+                                "Value": rec["Value"],
+                                "Price": "",
+                                "Amount": "",
+                                "Account": rec["Account"].replace(rec["Fund code"], CASH_SUFFIX),
+                                "Trancfer Account": RESP_GRANT,
+                                "Units you own (post)":"",
+                                "Total value ($)": "",
+                                "Fund code": "",
+                                "Fund name": "",
+                                }
+                            records.append(rec_income)
 
                 elif section_type == "savings":
                     rec = parse_savings_line(
